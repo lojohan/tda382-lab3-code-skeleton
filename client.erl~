@@ -42,8 +42,10 @@ handle(St, disconnect) ->
 
 % Join channel
 handle(St, {join, Channel}) ->
-    NewChannels = St#client_st.channels ++ [Channel],
-    New_St = St#client_st{channels = NewChannels},
+    Channels = St#client_st.channels ++ [Channel],
+    io:fwrite("channels is now ~p~n", [Channels]),
+    New_St = St#client_st{channels = Channels},
+    io:fwrite("channels is now 2 ~p~n", [New_St#client_st.channels]),
     {reply, ok, New_St} ;
 
 %% Leave channel
@@ -54,7 +56,9 @@ handle(St, {leave, Channel}) ->
 
 % Sending messages
 handle(St, {msg_from_GUI, Channel, Msg}) ->
+    io:fwrite("channels is ~p~n", [St#client_st.channels]),
     InChannel = lists:member(Channel, St#client_st.channels),
+    io:fwrite("InChannel is ~p~n", [InChannel]),
     case InChannel of
         true ->
             Server = St#client_st.server,
