@@ -53,6 +53,11 @@ handle(St, {join, Channel}) ->
 
 %% Leave channel
 handle(St, {leave, Channel}) ->
+    % Notify server that we left a channel
+    Data = { left_channel, self(), St#client_st.nick, Channel },
+    _ = genserver:request(St#client_st.server, Data),
+    
+    % Now update our state
     NewChannels = St#client_st.channels -- [Channel],
     New_St = St#client_st{channels = NewChannels},
     {reply, ok, New_St} ;

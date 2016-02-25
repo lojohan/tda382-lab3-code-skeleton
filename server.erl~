@@ -21,9 +21,9 @@ send_message(St, From, Nick, Channel, Msg) ->
     MessageToClients = {incoming_msg, Channel, Nick, Msg},
     ClientsInChannel = dict:fetch(Channel, St#server_st.channels) -- [From],
     if ClientsInChannel /= [] ->
-        io:fwrite("Server sending to clients: ~p~n", ClientsInChannel),
+        io:fwrite("Server sending to clients: ~p~n", [ClientsInChannel]),
         Results = lists:map(fun (Client) -> genserver:request(Client, MessageToClients) end, ClientsInChannel),
-        io:fwrite("Client responses: ~p~n", Results);
+        io:fwrite("Client responses: ~p~n", [Results]);
     true -> no_clients_to_send_to
     end.
 
@@ -55,6 +55,18 @@ handle(St=#server_st{servername=ServerName}, { joined_channel, From, Nick, Chann
     
     Msg = Nick ++ " joined the channel!",
     send_message_to_channel(NewState, self(), ServerName, Channel, Msg),
+    
+    Response = ok,
+    {reply, Response, NewState};
+    
+handle(St=#server_st{servername=ServerName}, { left_channel, From, Nick, Channel}) ->
+    io:fwrite("Server ~p: ~p left ~p ~n", [ServerName, Nick, Channel]),
+    NewState = St#server_st{ channels=dict:filter( fun(Chan, Pid) -> ( (Chan/=Channel) or (Pid/=From) ) end, St#server_st.channels) },
+    io:fwrite("Channel: ~p now contains ~p ~n", [Channel, NewState#server_st.channels]),
+    
+    Msg = Nick ++ " left the channel!",
+    send_message_to_channel(NewState, self(), ServerName, Channel, Msg),
+    io:fwrite(Msg),
     
     Response = ok,
     {reply, Response, NewState}.

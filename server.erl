@@ -57,4 +57,15 @@ handle(St=#server_st{servername=ServerName}, { joined_channel, From, Nick, Chann
     send_message_to_channel(NewState, self(), ServerName, Channel, Msg),
     
     Response = ok,
+    {reply, Response, NewState};
+    
+handle(St=#server_st{servername=ServerName}, { left_channel, From, Nick, Channel}) ->
+    io:fwrite("Server ~p: ~p left ~p ~n", [ServerName, Nick, Channel]),
+    NewState = St#server_st{ channels=dict:filter( fun(Chan, Pid) -> ( (Chan/=Channel) or (Pid/=From) ) end, St#server_st.channels) },
+    io:fwrite("Channel: ~p now contains ~p ~n", [Channel, NewState#server_st.channels]),
+    
+    Msg = Nick ++ " left the channel!",
+    send_message_to_channel(NewState, self(), ServerName, Channel, Msg),
+    
+    Response = ok,
     {reply, Response, NewState}.
