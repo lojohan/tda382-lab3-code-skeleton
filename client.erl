@@ -7,7 +7,7 @@
 
 %% Produce initial state
 initial_state(Nick, GUIName) ->
-    #client_st { gui = GUIName, server = "", channels = [] }.
+    #client_st {nick = Nick, gui = GUIName, server = "", channels = [] }.
 
 %% ---------------------------------------------------------------------------
 
@@ -25,7 +25,7 @@ handle(St, {connect, Server}) when Server == St#client_st.server ->
         
 %% Connect to server
 handle(St, {connect, Server}) ->
-    Data = "hello?",
+    Data = { hello_msg, St#client_st.nick},
     io:fwrite("Client is sending: ~p~n", [Data]),
     ServerAtom = list_to_atom(Server),
     Response = genserver:request(ServerAtom, Data),
@@ -42,6 +42,11 @@ handle(St, disconnect) ->
 
 % Join channel
 handle(St, {join, Channel}) ->
+    % Notify server that we joined a channel
+    Data = { joined_channel, self(), St#client_st.nick, Channel },
+    _ = genserver:request(St#client_st.server, Data),
+    
+    % Now update our state
     NewChannels = St#client_st.channels ++ [Channel],
     New_St = St#client_st{channels = NewChannels},
     {reply, ok, New_St} ;
@@ -58,7 +63,8 @@ handle(St, {msg_from_GUI, Channel, Msg}) ->
     case InChannel of
         true ->
             Server = St#client_st.server,
-            Response = genserver:request(Server, Msg),    
+            Data = { msg, self(), St#client_st.nick, Channel, Msg },
+            genserver:request(Server, Data),
             {reply, ok, St} ;
         false ->
             {reply, user_not_joined, St}
@@ -66,16 +72,16 @@ handle(St, {msg_from_GUI, Channel, Msg}) ->
    
 %% Get current nick
 handle(St, whoami) ->
-    % {reply, "nick", St} ;
-    {reply, {error, not_implemented, "Not implemented"}, St} ;
+    {reply, St#client_st.nick, St} ;
 
 %% Change nick
 handle(St, {nick, Nick}) ->
-    % {reply, ok, St} ;
-    {reply, {error, not_implemented, "Not implemented"}, St} ;
+    NewState = St#client_st{ nick=Nick },
+    {reply, ok, NewState} ;
 
 %% Incoming message
 handle(St = #client_st { gui = GUIName }, {incoming_msg, Channel, Name, Msg}) ->
+    io:fwrite("~p: Incoming message!: ~p ~p ~p ~n", [self(), Channel, Name, Msg]),
     gen_server:call(list_to_atom(GUIName), {msg_to_GUI, Channel, Name++"> "++Msg}),
     {reply, ok, St}.
  

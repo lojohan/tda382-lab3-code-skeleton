@@ -21,9 +21,9 @@ send_message(St, From, Nick, Channel, Msg) ->
     MessageToClients = {incoming_msg, Channel, Nick, Msg},
     ClientsInChannel = dict:fetch(Channel, St#server_st.channels) -- [From],
     if ClientsInChannel /= [] ->
-        io:fwrite("Server sending to clients: ~p~n", [ClientsInChannel]),
+        io:fwrite("Server sending to clients: ~p~n", ClientsInChannel),
         Results = lists:map(fun (Client) -> genserver:request(Client, MessageToClients) end, ClientsInChannel),
-        io:fwrite("Client responses: ~p~n", [Results]);
+        io:fwrite("Client responses: ~p~n", Results);
     true -> no_clients_to_send_to
     end.
 
