@@ -1,5 +1,5 @@
 -module(server).
--export([handle/2, initial_state/1, send_message/5]).
+-export([handle/2, initial_state/1, handle_channel/2, send_message/2]).
 -include_lib("./defs.hrl").
 
 %% inititial_state/2 and handle/2 are used togetger with the genserver module,
@@ -12,32 +12,37 @@ initial_state(ServerName) ->
 %% ---------------------------------------------------------------------------
 
 
-%% Send a message to clients in channel
+%% Spawn a new thread sending a message to clients in channel.
+send_message_proc(Pid, Msg) ->
+    spawn(server, send_message, [Pid, Msg]).
+    
+%% ---------------------------------------------------------------------------
 
-send_message_to_channel(St, From, Nick, Channel, Msg) ->
-    spawn(server, send_message, [St, From, Nick, Channel, Msg]).
-
-send_message(St, From, Nick, Channel, Msg) ->
-    MessageToClients = {incoming_msg, Channel, Nick, Msg},
-    ClientsInChannel = dict:fetch(Channel, St#server_st.channels) -- [From],
-    if ClientsInChannel /= [] ->
-        io:fwrite("Server sending to clients: ~p~n", [ClientsInChannel]),
-        Results = lists:map(fun (Client) -> genserver:request(Client, MessageToClients) end, ClientsInChannel),
-        io:fwrite("Client responses: ~p~n", [Results]);
-    true -> no_clients_to_send_to
-    end.
+%% Relay a message to all clients in Channel, except to client with pid From.
+send_message(Pid, Msg) ->
+    genserver:request(Pid, Msg).
 
 
-%% add_client/3
-%%   Returns the tuple {Pid, Nick} that were added to/were alreday present in client list. 
-add_client(St, Pid, Nick) ->
-    NickInList = [{Pid2, Nick2} || {Pid2, Nick2} <- St#server_st.clients, Nick2 == Nick],
-    if NickInList/=[] ->
-        hd(NickInList); % must be a single tuple
-    true ->
-        NewClientList = [case X of {Pid, _} -> {Pid, Nick}; X -> X end || X <- St#server_st.clients],
-        St#server_st{clients = NewClientList}
-    end.
+%% ---------------------------------------------------------------------------
+%% A channel Process
+
+handle_channel(St, {client_join, Pid}) ->
+    NewState = St#channel_st{ clients = sets:add_element(Pid, St#channel_st.clients) },
+    {reply, ok, NewState};
+    
+handle_channel(St, {client_leave, Pid}) ->
+    NewState = St#channel_st{ clients = sets:del_element(Pid, St#channel_st.clients) },
+    {reply, ok, NewState};
+
+handle_channel(St, {client_msg, From, Nick, Msg}) ->
+    Channel = St#channel_st.name,
+    MessageToClients = {incoming_msg, atom_to_list(Channel), Nick, Msg},
+    OtherClientsInChannel = sets:to_list(sets:del_element(From, St#channel_st.clients)),
+    io:fwrite("Channel ~p: sending message from ~p to clients ~p~n", [Channel, From, OtherClientsInChannel]),
+    _Results = lists:map(fun (Client) -> send_message_proc(Client, MessageToClients) end, OtherClientsInChannel),
+    {reply, ok, St}.
+
+%% ---------------------------------------------------------------------------
 
 
 %% All requests are processed by handle/2 receiving the request data (and the
@@ -45,80 +50,71 @@ add_client(St, Pid, Nick) ->
 %% {reply, Reply, NewState}, where Reply is the reply to be sent to the client
 %% and NewState is the new state of the server.
 
+%% Handle a client sending a message in a channel
 handle(St, { msg, From, Nick, Channel, Msg}) ->
-    io:fwrite("Server received MESSAGE!: ~p ~p ~p ~n", [From, Nick, Channel]),
-    send_message_to_channel(St, From, Nick, Channel, Msg),
+    %io:fwrite("Server received MESSAGE!: ~p ~p ~p ~n", [From, Nick, Channel]),
+    ChannelAtom = list_to_atom(Channel),
+    genserver:request(ChannelAtom, {client_msg, From, Nick, Msg}),
     Response = ok,
     {reply, Response, St};
 
 
-%% Handle Nick change requests.    
+%% Handle Nick change requests. 
 handle(St, { request_nick, From, Nick }) ->
-    io:fwrite("Server received nick change request!: ~p ~p~n", [From, Nick]),
+    %io:fwrite("Server received nick change request!: ~p ~p~n", [From, Nick]),
+    %io:fwrite("Server got new client!: ~p ~p ~n", [From, Nick]),
+    %io:fwrite("Currently connected clients: ~p~n", [St#server_st.clients]),
     
     NickTaken = lists:any( fun ({Pid1, Nick1}) -> ((Nick1 == Nick) and (Pid1 /= From)) end, St#server_st.clients),
+    %io:fwrite("NickTaken: ~p~n", [NickTaken]),
     case NickTaken of
     true ->
         Response = nick_taken,
-        io:fwrite("Server is sending: ~p~n", [Response]),
+        %io:fwrite("Server is sending: ~p~n", [Response]),
         {reply, Response, St};
     false ->
         % add to clients list
-        NewState = St#server_st { clients = [{Pid, Nick1} || {Pid, Nick1} <- St#server_st.clients, Pid==From] ++ [{From, Nick}] },
+        NewClients = [{Pid, Nick1} || {Pid, Nick1} <- St#server_st.clients, Pid/=From] ++ [{From, Nick}],
+        %io:fwrite("NewClients: ~p~n", [NewClients]),
+        NewState = St#server_st { clients = NewClients },
         Response = "Welcome " ++ Nick ++ "!",
-        io:fwrite("Server is sending: ~p~n", [Response]),
+        %io:fwrite("Server is sending: ~p~n", [Response]),
         {reply, Response, NewState}
     end ;
     
-handle(St, { hello_msg, From, Nick }) ->
-    io:fwrite("Server got new client!: ~p ~p ~n", [From, Nick]),
-    io:fwrite("Currently connected clients: ~p~n", [St#server_st.clients]),
-    AnyList = lists:filter( fun ({Pid1, Nick1}) -> ((Nick1 == Nick) and (Pid1 /= From)) end, St#server_st.clients),
-    io:fwrite("AnyList: ~p~n", [AnyList]),
-    NickTaken = lists:any( fun ({Pid1, Nick1}) -> ((Nick1 == Nick) and (Pid1 /= From)) end, St#server_st.clients),
-    case NickTaken of
-    true ->
-        Response = nick_taken,
-        io:fwrite("Server is sending: ~p~n", [Response]),
-        {reply, Response, St};
-    false ->
-        % add to clients list
-        NewState = St#server_st { clients = [{Pid, Nick1} || {Pid, Nick1} <- St#server_st.clients, Pid==From] ++ [{From, Nick}] },
-        Response = "Welcome " ++ Nick ++ "!",
-        io:fwrite("Server is sending: ~p~n", [Response]),
-        {reply, Response, NewState}
-    end ;
-    
+%% Handle a client disconnecting from server
 handle(St, {disconnect, From}) ->
-    io:fwrite("Disconnect from server, client: ~p ~n", [From]),
+    %io:fwrite("Disconnect from server, client: ~p ~n", [From]),
     NewState = St#server_st { clients = lists:filter( fun ({Pid, _}) -> Pid /= From end, St#server_st.clients) },
     Response = ok,
     {reply, Response, NewState};
     
-handle(St=#server_st{servername=ServerName}, { joined_channel, From, Nick, Channel}) ->
-    io:fwrite("Server ~p: ~p joined ~p ~n", [ServerName, Nick, Channel]),
-    NewState = St#server_st{ channels=dict:append(Channel, From, St#server_st.channels ) },
-    io:fwrite("Channel: ~p now contains ~p ~n", [Channel, NewState#server_st.channels]),
+%% Handle a client joining a channel
+handle(St, { joined_channel, From, _Nick, Channel}) ->
+    %io:fwrite("Server ~p: ~p joined ~p ~n", [ServerName, Nick, 
+    ChannelAtom = list_to_atom(Channel),
+    ChannelExists = lists:member(ChannelAtom, St#server_st.channels),
+    NewState =
+        if not ChannelExists ->
+            % start new channel proc
+            NewChannelState = #channel_st{name=ChannelAtom},
+            genserver:start(ChannelAtom, NewChannelState, fun server:handle_channel/2),
+            St#server_st{ channels = [ChannelAtom | St#server_st.channels] };
+        true -> St
+        end, 
+    %io:fwrite("Channel: ~p now contains ~p ~n", [Channel, NewState#server_st.channels]),
     
-    % a REAL chat server would announce user joins...
-    %Msg = Nick ++ " joined the channel!",
-    %send_message_to_channel(NewState, self(), ServerName, Channel, Msg),
+    % add client to channel
+    genserver:request(ChannelAtom, {client_join, From}),
     
     Response = ok,
     {reply, Response, NewState};
-    
-handle(St=#server_st{servername=ServerName}, { left_channel, From, Nick, Channel}) ->
-    io:fwrite("Server ~p: ~p left ~p ~n", [ServerName, Nick, Channel]),
-    OldChannelPids = dict:fetch(Channel, St#server_st.channels),
-    io:fwrite("Server ~p: OldChannelPids: ~p ~n", [ServerName, OldChannelPids]),
-    NewChannelPids = OldChannelPids -- [From],
-    NewChannels = dict:store(Channel, NewChannelPids, St#server_st.channels),
-    NewState = St#server_st{ channels=NewChannels },
-    io:fwrite("Channel: ~p now contains ~p ~n", [Channel, NewState#server_st.channels]),
-    
-    % a REAL chat server would announce user leaves...
-    %Msg = Nick ++ " left the channel!",
-    %send_message_to_channel(NewState, self(), ServerName, Channel, Msg),
-    
+
+%% Handle a client leaving a channel
+handle(St, { left_channel, From, _Nick, Channel}) ->
+    ChannelAtom = list_to_atom(Channel),
+    genserver:request(ChannelAtom, {client_leave, From}),
     Response = ok,
-    {reply, Response, NewState}.
+    {reply, Response, St}.
+    
+
