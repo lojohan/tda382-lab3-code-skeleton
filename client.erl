@@ -137,8 +137,16 @@ handle(St, {nick, Nick}) ->
 handle(St = #client_st { gui = GUIName }, {incoming_msg, Channel, Name, Msg}) ->
     %io:fwrite("~p: Incoming message!: ~p ~p ~p ~n", [self(), Channel, Name, Msg]),
     gen_server:call(list_to_atom(GUIName), {msg_to_GUI, Channel, Name++"> "++Msg}),
+    {reply, ok, St};
+ 
+%% Incoming task
+handle(St, {incoming_task, CollectorPid, Task}) ->
+    io:fwrite("~p: Incoming task!: ~p~n", [self(), Task]),
+    Result = Task(),
+    io:fwrite("~p: Result!: ~p~n", [self(), Result]),
+    CollectorPid ! {task_result, self(), Result},
+    %Server = St#client_st.server,
+    %genserver:request(Server, {task_result, self(), Result}),
     {reply, ok, St}.
- 
- 
  
  

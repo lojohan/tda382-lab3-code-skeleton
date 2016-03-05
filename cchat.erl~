@@ -28,8 +28,7 @@ send_job(Server,F,Inputs) ->
     Results = receive_job(ClientTasks),
     Results.
     
-receive_job([]) -> [];
-
+    
 receive_job([HeadClientTask | RemainingClientTasks]) ->
     {Client,_} = HeadClientTask,
     % wait for results to come in

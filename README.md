@@ -17,11 +17,11 @@ COMMENTS ABOUT SOLUTION
 
 SENDING MESSAGES
 ....................
-Clients request to send a message to the server through the genserver.
-Then server then spawns a new process, for each message request, that forwards the message, through the genserver, to each other client connected to that channel.
+Clients request to send a message to the channel through the genserver.
+Then channel then spawns a new process, for each recipient, that forwards the message, through the genserver, to each other client connected to that channel.
 
 KEEPING TRACK OF CLIENTS
 .........................
 The clients notify the server, through the genserver, whenever it: joins or leaves a server, channel; or changes nick. 
-The server keeps track of which client has which nick, and is connected to what channels.
+The server keeps track of which client has which nick, and which channels exist on the server.
 

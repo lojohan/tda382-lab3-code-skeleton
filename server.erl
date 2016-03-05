@@ -1,5 +1,5 @@
 -module(server).
--export([handle/2, initial_state/1, handle_channel/2, send_message/2]).
+-export([handle/2, initial_state/1, handle_channel/2, send_message/2, assign_tasks/2]).
 -include_lib("./defs.hrl").
 
 %% inititial_state/2 and handle/2 are used togetger with the genserver module,
@@ -115,6 +115,25 @@ handle(St, { left_channel, From, _Nick, Channel}) ->
     ChannelAtom = list_to_atom(Channel),
     genserver:request(ChannelAtom, {client_leave, From}),
     Response = ok,
-    {reply, Response, St}.
-    
+    {reply, Response, St};
 
+
+%% Handle an incoming client task result
+handle(St, { task_result, From, Result}) ->
+    io:fwrite("Got result ~p from: ~p~n", [Result, From]),
+    Response = ok,
+    {reply, Response, St};
+
+handle(St, { assign_tasks, CollectorPid, F, Inputs}) ->
+    Clients = [ Pid || {Pid, _} <- St#server_st.clients ],
+    Tasks = [ fun ()->F(Input) end || Input <- Inputs ],
+    ClientTasks = assign_tasks(Clients, Tasks),
+    lists:map(fun ({Client, Task}) -> send_message_proc(Client, {incoming_task, CollectorPid, Task}) end, ClientTasks),
+    io:fwrite("ClientTasks: ~p~n", [ClientTasks]),
+    {reply, ClientTasks, St}.
+    
+assign_tasks([], _) -> [] ;
+
+assign_tasks(Users, Tasks) ->
+  [  {lists:nth(((N-1) rem length(Users)) + 1, Users), Task}
+  || {N,Task} <- lists:zip(lists:seq(1,length(Tasks)), Tasks) ].
